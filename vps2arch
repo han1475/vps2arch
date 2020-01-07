@@ -32,9 +32,6 @@ get_worldwide_mirrors() {
 
 cpu_type=$(uname -m)
 
-is_openvz() { [ -d /proc/vz -a ! -d /proc/bc ]; }
-is_lxc() { grep -aqw container=lxc /proc/1/environ ; }
-
 download() {
 	local path="$1" x=
 	shift
@@ -42,6 +39,20 @@ download() {
 		_download "$x/$path" && return 0
 	done
 	return 1
+}
+
+scan_packages() {
+	local local_packages="bash bash-completion bzip2 coreutils cryptsetup device-mapper diffutils file filesystem findutils gawk gcc-libs gettext glibc grep gzip inetutils iproute2 iputils less licenses linux linux-firmware man-db man-pages pacman pciutils perl procps-ng psmisc sed shadow sysfsutils systemd-sysvcompat tar texinfo usbutils util-linux which openssh haveged base-devel"
+	# not supported: s-nail
+	local_packages="$local_packages grub"
+	if [ -d /sys/firmware/efi ] ; then
+		local_packages="$local_packages efibootmgr"
+	fi
+	local_packages="$local_packages vim"
+	local_packages="$local_packages e2fsprogs btrfs-progs dosfstools f2fs-tools jfsutils nilfs-utils reiserfsprogs xfsprogs"
+	[ $(ls /dev/md* 2> /dev/null | wc -l) != "0" ] && local_packages="$local_packages mdadm"
+	[ $(ls /dev/dm-* 2> /dev/null | wc -l) != "0" ] && local_packages="$local_packages lvm2"
+	echo $local_packages
 }
 
 download_and_extract_bootstrap() {
@@ -82,22 +93,11 @@ configure_chroot() {
 	for m in $mirrors; do
 		echo 'Server = '"$m"'/$repo/os/$arch'
 	done >> "/root.$cpu_type/etc/pacman.d/mirrorlist"
-	# Install and initialize haveged if needed
-	if ! is_openvz && ! pidof haveged >/dev/null; then
-		# Disable signature check, install and launch haveged and re-enable signature checks.
-		sed -i.bak "s/^[[:space:]]*SigLevel[[:space:]]*=.*$/SigLevel = Never/" "/root.$cpu_type/etc/pacman.conf"
-		chroot_exec 'pacman --noconfirm -Sy haveged && haveged'
-		mv "/root.$cpu_type/etc/pacman.conf.bak" "/root.$cpu_type/etc/pacman.conf"
-	fi
+	chroot_exec 'dd if=/dev/urandom of=/dev/tty0 bs=1M count=1 conv=sync'
 	chroot_exec 'pacman-key --init && pacman-key --populate archlinux'
 	chroot_exec 'pacman --noconfirm -Sy awk'
 	# Generate fstab
 	chroot_exec 'genfstab /mnt >> /etc/fstab'
-
-	if is_openvz && [ "$kernelver" '<' '2.6.32-042stab111.1' ]; then
-		# Use my repository for OpenVZ-patched systemd
-		sed -i 's;^#\[testing\]$;[tredaelli-systemd]\nServer = http://pkgbuild.com/~tredaelli/repo/systemd/$arch\n\n&;' "/root.$cpu_type/etc/pacman.conf"
-	fi
 }
 
 save_root_pass() {
@@ -120,10 +120,6 @@ delete_all() {
 }
 
 install_packages() {
-	local packages="base openssh reflector"
-	[ "$bootloader" != "none" ] && packages="$packages $bootloader"
-	# XXX Install gptdisk for syslinux. To be removed then FS#45029 will be closed
-	[ "$bootloader" = "syslinux" ] && packages="$packages gptfdisk"
 	# Black magic!
 	"/root.$cpu_type/usr/lib"/ld-*.so --library-path "/root.$cpu_type/usr/lib" \
 		"/root.$cpu_type/usr/bin/chroot" "/root.$cpu_type" /usr/bin/pacstrap -M /mnt $packages
@@ -157,14 +153,16 @@ configure_bootloader() {
 		sed -i.bak 's/use_lvmetad = 1/use_lvmetad = 0/g' /etc/lvm/lvm.conf
 	fi
 
-	if [ "$bootloader" = "grub" ]; then
-		# If you are still using eth* as interface name, disable "strange" ifnames
-		grep -q '^[[:space:]]*eth' /proc/net/dev && \
-			sed -i.bak 's/GRUB_CMDLINE_LINUX_DEFAULT="/&net.ifnames=0 /' /etc/default/grub
+	# If you are still using eth* as interface name, disable "strange" ifnames
+	grep -q '^[[:space:]]*eth' /proc/net/dev && \
+		sed -i.bak 's/GRUB_CMDLINE_LINUX_DEFAULT="/&net.ifnames=0 /' /etc/default/grub
 
-		# Disable "graphic" terminal output
-		sed -i.bak 's/^#GRUB_TERMINAL_OUTPUT=console/GRUB_TERMINAL_OUTPUT=console/' /etc/default/grub
+	# Disable "graphic" terminal output
+	sed -i.bak 's/^#GRUB_TERMINAL_OUTPUT=console/GRUB_TERMINAL_OUTPUT=console/' /etc/default/grub
 
+	if [ -d /sys/firmware/efi ] ; then
+		grub-install --target=x86_64-efi --recheck --force --efi-directory=/boot --bootloader-id=ArchLinux --removable
+	else
 		if [ $needs_lvm2 -eq 1 ]; then
 			local vg
 			vg=$(lvs --noheadings $root_dev | awk '{print $2}')
@@ -173,20 +171,16 @@ configure_bootloader() {
 		for root_dev in $root_dev; do
 			tmp=$(lsblk -npsro TYPE,NAME "$root_dev" | awk '($1 == "disk") { print $2}')
 			case " $root_devs " in
-			*" $tmp "*) 	;;
-			*)		root_devs="${root_devs:+$root_devs }$tmp"	;;
+			*" $tmp "*) ;;
+			*) root_devs="${root_devs:+$root_devs }$tmp" ;;
 			esac
 		done
 		for root_dev in $root_devs; do
 			grub-install --target=i386-pc --recheck --force "$root_dev"
 		done
-		grub-mkconfig > /boot/grub/grub.cfg
-	elif [ "$bootloader" = "syslinux" ]; then
-		# If you are still using eth* as interface name, disable "strange" ifnames
-		grep -q '^[[:space:]]*eth' /proc/net/dev && tmp="net.ifnames=0"
-		syslinux-install_update -ami
-		sed -i "s;\(^[[:space:]]*APPEND.*\)root=[^[:space:]]*;\1root=$root_dev${tmp:+ $tmp};" /boot/syslinux/syslinux.cfg
 	fi
+
+	grub-mkconfig > /boot/grub/grub.cfg
 
 	if [ $needs_lvm2 -eq 1 ]; then
 		mv /etc/lvm/lvm.conf.bak /etc/lvm/lvm.conf
@@ -208,69 +202,63 @@ configure_network() {
 	set -- $(ip addr show dev "$dev" | awk '($1 == "inet") { print $2 }')
 	ip=$@
 
-	# FIXME Not supported for "P2P" interfaces, such as venet, yet
-	if [ "$network" = "systemd-networkd" ]; then
-		cat > /etc/systemd/network/default.network <<-EOF
-			[Match]
-			Name=$dev
+	cat > /etc/systemd/network/default.network <<-EOF
+		[Match]
+		Name=$dev
 
-			[Network]
-			Gateway=$gateway
-		EOF
-		for ip in $ip; do
-			echo "Address=$ip"
-		done >> /etc/systemd/network/default.network
-		systemctl enable systemd-networkd
-	elif [ "$network" = "netctl" ]; then
-		cat > /etc/netctl/default <<-EOF
-			Interface=$dev
-			Connection=ethernet
-			IP=static
-			Address=($ip)
-		EOF
-		if [ "$gateway" = "0.0.0.0" ]; then
-			echo 'Routes=(0.0.0.0/0)'
-		else
-			echo "Gateway=$gateway"
-		fi >> /etc/netctl/default
-		netctl enable default
-	fi
+		[Network]
+		Gateway=$gateway
+	EOF
+	for ip in $ip; do
+		echo "Address=$ip"
+	done >> /etc/systemd/network/default.network
+	mv /etc/systemd/network/default.network /etc/systemd/network/wired.network
+	sed -i 's/#NTP=.*/NTP=0.arch.pool.ntp.org 1.arch.pool.ntp.org 2.arch.pool.ntp.org 3.arch.pool.ntp.org/g' /etc/systemd/timesyncd.conf
+	sed -i 's/#DNS=.*/DNS=8.8.8.8 8.8.4.4 2001:4860:4860::8888 2001:4860:4860::8844/g' /etc/systemd/resolved.conf
+	sed -i 's/#FallbackNTP=.*/#FallbackNTP=/g' /etc/systemd/timesyncd.conf
+	sed -i 's/#FallbackDNS=.*/#FallbackDNS=/g' /etc/systemd/resolved.conf
+
+	ln -sf /usr/lib/systemd/resolv.conf /etc/resolv.conf
+
+	systemctl enable systemd-networkd
+	systemctl enable systemd-resolved
+	systemctl enable systemd-timesyncd
+	systemctl enable systemd-time-wait-sync
+
+	echo -ne "" > /etc/sysctl.d/60-user.conf
+	echo -ne "net.core.default_qdisc = fq\n" >> /etc/sysctl.d/60-user.conf
+	echo -ne "net.ipv4.tcp_congestion_control = bbr\n" >> /etc/sysctl.d/60-user.conf
+	echo -ne "net.ipv4.tcp_fastopen = 3\n" >> /etc/sysctl.d/60-user.conf
+	echo -ne "net.ipv4.tcp_mtu_probing = 2\n" >> /etc/sysctl.d/60-user.conf
+	echo -ne "net.ipv4.tcp_syncookies = 1\n" >> /etc/sysctl.d/60-user.conf
+	echo -ne "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.d/60-user.conf
 
 	systemctl enable sshd
 }
 
 finalize() {
-	# OpenVZ hacks
-	if is_openvz; then
-		local kernelver
-		read -r _ _ kernelver _ < /proc/version
-		if [ "$kernelver" '>' '3.10' ]; then
-			# Virtuozzo 7 works with systemd, but it needs /etc/resolvconf/resolv.conf.d directory
-			mkdir -p /etc/resolvconf/resolv.conf.d
-		elif [ "$kernelver" '<' '2.6.32-042stab111.1' ]; then
-			# Use my repository for OpenVZ-patched systemd
-			sed -i 's;^#\[testing\]$;[tredaelli-systemd]\nServer = http://pkgbuild.com/~tredaelli/repo/systemd/$arch\n\n&;' /etc/pacman.conf
-		fi
-	fi
-
 	# Enable SSH login for user root (#3)
 	sed -i '/^#PermitRootLogin\s/s/.*/&\nPermitRootLogin yes/' /etc/ssh/sshd_config
-	
-	# Run reflector to get updated mirrors
-	
-	cat <<-EOF
-	
-		Reflector: Rating the 35 most recently synced HTTPS servers, sorting them by download speed
-		
-	EOF
-	
-	reflector -l 35 -p https --sort rate --save /etc/pacman.d/mirrorlist
+
+	sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/g' /etc/locale.gen
+	locale-gen
+
+	echo -ne "LANG=en_US.UTF-8" > /etc/locale.conf
+
+	echo -ne "" >> /etc/hosts
+	echo -ne "127.0.0.1 localhost\n" >> /etc/hosts
+	echo -ne "::1       localhost" >> /etc/hosts
+
+	for var in 'edit' 'ex' 'vedit' 'vi' 'view'; do
+		ln -sf 'vim' "/usr/bin/${var}"
+		ln -sf 'vim.1.gz' "/usr/share/man/man1/${var}.1.gz"
+	done
+
+	systemctl enable haveged
 
 	cat <<-EOF
 		Hi,
 		your VM has successfully been reimaged with Arch Linux.
-
-		This script configured $bootloader as bootloader and $network for networking.
 
 		When you are finished with your post-installation, you'll need to reboot the VM the rough way:
 		# sync ; reboot -f
@@ -279,42 +267,21 @@ finalize() {
 	EOF
 }
 
-bootloader=grub
-network=systemd-networkd
+packages=$(scan_packages)
 mirrors=
 
-while getopts ":b:m:n:h" opt; do
+while getopts ":b:m:n:e:h" opt; do
 	case $opt in
-	b)
-		if ! [ "$OPTARG" = "grub" -o "$OPTARG" = "syslinux" -o "$OPTARG" = "none" ]; then
-			echo "Invalid bootloader specified" >&2
-			exit 1
-		fi
-		bootloader="$OPTARG"
-		;;
 	m)
 		mirrors="${mirrors:+$mirrors }$OPTARG"
-		;;
-	n)
-		if ! [ "$OPTARG" = "systemd-networkd" -o "$OPTARG" = "netctl" -o "$OPTARG" = "none" ]; then
-			echo "Invalid networking configuration system specified" >&2
-			exit 1
-		fi
-		network="$OPTARG"
 		;;
 	h)
 		cat <<-EOF
 			usage: ${0##*/} [options]
 
 			  Options:
-			    -b (grub|syslinux)           Use the specified bootloader. When this option is omitted, it defaults to grub.
-			    -n (systemd-networkd|netctl) Use the specified networking configuration system. When this option is omitted, it defaults to systemd-networkd.
 			    -m mirror                    Use the provided mirror (you can specify this option more than once).
-
 			    -h                           Print this help message
-
-			    Warning:
-			      On OpenVZ containers the bootloader will be not installed and the networking configuration system will be enforced to netctl.
 		EOF
 		exit 0
 		;;
@@ -332,13 +299,7 @@ shift $((OPTIND - 1))
 
 [ -z "$mirrors" ] && mirrors=$(get_worldwide_mirrors)
 
-
-if is_openvz; then
-	bootloader=none
-	network=netctl
-elif is_lxc; then
-	bootloader=none
-fi
+echo "auto install packages: $packages"
 
 cd /
 download_and_extract_bootstrap
