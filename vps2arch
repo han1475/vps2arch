@@ -240,6 +240,10 @@ configure_network() {
 		::1       localhost
 	EOF
 
+  # Backup old route info
+  cat /proc/net/route > /root/route
+  cat /proc/net/ipv6_route > /root/ipv6_route
+
 	systemctl enable sshd
 }
 
