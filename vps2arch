@@ -42,7 +42,7 @@ download() {
 }
 
 scan_packages() {
-	local local_packages="bash bash-completion bzip2 coreutils cryptsetup device-mapper diffutils file filesystem findutils gawk gcc-libs gettext glibc grep gzip inetutils iproute2 iputils less licenses linux linux-firmware man-db man-pages pacman pciutils perl procps-ng psmisc sed shadow sysfsutils systemd-sysvcompat tar texinfo usbutils util-linux which openssh haveged base-devel"
+	local local_packages="bash bash-completion bzip2 coreutils cryptsetup device-mapper diffutils file filesystem findutils gawk gcc-libs gettext glibc grep gzip inetutils iproute2 iputils less licenses linux linux-firmware man-db man-pages pacman pciutils perl procps-ng psmisc sed shadow sysfsutils systemd-sysvcompat tar texinfo usbutils util-linux which openssh haveged"
 	# not supported: s-nail
 	local_packages="$local_packages grub"
 	if [ -d /sys/firmware/efi ] ; then
