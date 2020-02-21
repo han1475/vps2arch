@@ -225,13 +225,14 @@ configure_network() {
 	systemctl enable systemd-timesyncd
 	systemctl enable systemd-time-wait-sync
 
-	echo -ne "" > /etc/sysctl.d/60-user.conf
-	echo -ne "net.core.default_qdisc = fq\n" >> /etc/sysctl.d/60-user.conf
-	echo -ne "net.ipv4.tcp_congestion_control = bbr\n" >> /etc/sysctl.d/60-user.conf
-	echo -ne "net.ipv4.tcp_fastopen = 3\n" >> /etc/sysctl.d/60-user.conf
-	echo -ne "net.ipv4.tcp_mtu_probing = 2\n" >> /etc/sysctl.d/60-user.conf
-	echo -ne "net.ipv4.tcp_syncookies = 1\n" >> /etc/sysctl.d/60-user.conf
-	echo -ne "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.d/60-user.conf
+	cat > /etc/sysctl.d/60-user.conf <<-EOF
+		net.core.default_qdisc = fq
+		net.ipv4.tcp_congestion_control = bbr
+		net.ipv4.tcp_fastopen = 3
+		net.ipv4.tcp_mtu_probing = 2
+		net.ipv4.tcp_syncookies = 1
+		net.ipv4.tcp_tw_reuse = 1
+	EOF
 
 	systemctl enable sshd
 }
@@ -243,11 +244,15 @@ finalize() {
 	sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/g' /etc/locale.gen
 	locale-gen
 
-	echo -ne "LANG=en_US.UTF-8" > /etc/locale.conf
+	cat >> /etc/hosts <<-EOF
+	                                
+		echo -ne "127.0.0.1 localhost
+		echo -ne "::1       localhost
+	EOF
 
-	echo -ne "" >> /etc/hosts
-	echo -ne "127.0.0.1 localhost\n" >> /etc/hosts
-	echo -ne "::1       localhost" >> /etc/hosts
+	cat > /etc/locale.conf <<-EOF
+		LANG=en_US.UTF-8
+	EOF
 
 	for var in 'edit' 'ex' 'vedit' 'vi' 'view'; do
 		ln -sf 'vim' "/usr/bin/${var}"
