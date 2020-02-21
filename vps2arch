@@ -212,7 +212,7 @@ configure_network() {
 	for ip in $ip; do
 		echo "Address=$ip"
 	done >> /etc/systemd/network/default.network
-	mv /etc/systemd/network/default.network /etc/systemd/network/wired.network
+	
 	sed -i 's/#NTP=.*/NTP=0.arch.pool.ntp.org 1.arch.pool.ntp.org 2.arch.pool.ntp.org 3.arch.pool.ntp.org/g' /etc/systemd/timesyncd.conf
 	sed -i 's/#DNS=.*/DNS=8.8.8.8 8.8.4.4 2001:4860:4860::8888 2001:4860:4860::8844/g' /etc/systemd/resolved.conf
 	sed -i 's/#FallbackNTP=.*/#FallbackNTP=/g' /etc/systemd/timesyncd.conf
