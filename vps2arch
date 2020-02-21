@@ -234,6 +234,12 @@ configure_network() {
 		net.ipv4.tcp_tw_reuse = 1
 	EOF
 
+	cat >> /etc/hosts <<-EOF
+	                                
+		127.0.0.1 localhost
+		::1       localhost
+	EOF
+
 	systemctl enable sshd
 }
 
@@ -243,12 +249,6 @@ finalize() {
 
 	sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/g' /etc/locale.gen
 	locale-gen
-
-	cat >> /etc/hosts <<-EOF
-	                                
-		echo -ne "127.0.0.1 localhost
-		echo -ne "::1       localhost
-	EOF
 
 	cat > /etc/locale.conf <<-EOF
 		LANG=en_US.UTF-8
