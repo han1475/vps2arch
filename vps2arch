@@ -43,7 +43,7 @@ download() {
 
 scan_packages() {
 	local local_packages="base linux"
-	local_packages="$local_packages bash-completion openssh haveged python"
+	local_packages="$local_packages bash-completion openssh haveged python man-db man-pages which"
 	local_packages="$local_packages grub"
 	if [ -d /sys/firmware/efi ] ; then
 		local_packages="$local_packages efibootmgr"
