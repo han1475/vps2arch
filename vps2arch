@@ -44,7 +44,7 @@ download() {
 scan_packages() {
 	local local_packages="base"
 	# Add default packages
-	local_packages="$local_packages bash-completion haveged linux linux-firmware man-db man-pages openssh python usbutils which"
+	local_packages="$local_packages bash-completion haveged linux linux-firmware man-db man-pages openssh python usbutils which rsync"
 	# Add bootloader packages
 	local_packages="$local_packages grub"
 	if [ -d /sys/firmware/efi ] ; then
