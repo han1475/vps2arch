@@ -51,7 +51,7 @@ scan_packages() {
 		local_packages="$local_packages efibootmgr"
 	fi
 	local_packages="$local_packages vim"
-	local_packages="$local_packages e2fsprogs btrfs-progs dosfstools f2fs-tools jfsutils nilfs-utils reiserfsprogs xfsprogs"
+	local_packages="$local_packages e2fsprogs btrfs-progs dosfstools f2fs-tools jfsutils nilfs-utils reiserfsprogs xfsprogs exfatprogs"
 	[ $(ls /dev/md* 2> /dev/null | wc -l) != "0" ] && local_packages="$local_packages mdadm"
 	[ $(ls /dev/dm-* 2> /dev/null | wc -l) != "0" ] && local_packages="$local_packages lvm2"
 	echo $local_packages
